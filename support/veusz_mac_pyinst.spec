@@ -4,14 +4,19 @@ import glob
 
 block_cipher = None
 
+badqt = [
+    'QtWebSockets', 'QtQmlModels', 'QtDBus', 'QtNetwork',
+    'QtQml', 'QtQuick',
+]
+
 a = Analysis(
     ['../veusz/veusz_main.py'],
     binaries=[],
     datas=[],
-    hiddenimports=['iminuit.iminuit_warnings','iminuit.latex','iminiuit._libiminuit','iminuit._minuit_methods'],
+    hiddenimports=[],
     hookspath=[],
     runtime_hooks=[],
-    excludes=[],
+    excludes=[('PyQt5.'+mod) for mod in badqt],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher
@@ -19,13 +24,16 @@ a = Analysis(
 
 # add necessary documentation, licence
 binaries = a.binaries
-for bin in ('VERSION', 'ChangeLog', 'AUTHORS', 'README.md', 'INSTALL', 'COPYING'):
+for bin in ('VERSION', 'ChangeLog', 'AUTHORS', 'README.md', 'INSTALL.md', 'COPYING'):
     binaries += [ (bin, bin, 'DATA') ]
 
 binaries += [
     ('embed.py', 'veusz/embed.py', 'DATA'),
     ('__init__.py', 'veusz/__init__.py', 'DATA'),
 ]
+
+# remove not needed qt
+# binaries[:] = [b for b in binaries if b[0] not in set(badqt)]
 
 # add various required files to distribution
 for f in (

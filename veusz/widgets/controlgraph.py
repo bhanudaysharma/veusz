@@ -24,10 +24,15 @@ item to control the object
 """
 
 import math
+import os.path
+from types import SimpleNamespace
 
 from .. import qtall as qt
 from .. import document
 from .. import setting
+from .. import utils
+from ..utils import DEG2RAD, RAD2DEG
+from ..helpers import threed
 
 def _(text, disambiguation=None, context='controlgraph'):
     """Translate text."""
@@ -455,7 +460,7 @@ class _GraphResizableBox(qt.QGraphicsItem):
             # work out angle relative to centre of widget
             angle = math.atan2(y, x)
             # change to degrees from correct direction
-            par.angle = round((angle*(180/math.pi) + 90.) % 360, 2)
+            par.angle = round((angle*RAD2DEG + 90.) % 360, 2)
 
         self.updateCorners()
 
@@ -464,7 +469,7 @@ class _GraphResizableBox(qt.QGraphicsItem):
         par = self.params
 
         # update corners
-        angle = par.angle/180.*math.pi
+        angle = par.angle*DEG2RAD
         s, c = math.sin(angle), math.cos(angle)
 
         for corn, (xd, yd) in zip(
@@ -814,3 +819,227 @@ class _GraphAxisLine(qt.QGraphicsItem):
         else:
             self.params.reset = 1
         self.updateWidget()
+
+
+
+############################################################
+
+class _SceneEdgeLine(qt.QGraphicsLineItem):
+
+    def __init__(self, parent, params, axis=None):
+        qt.QGraphicsLineItem.__init__(self, parent)
+        self.params = params
+        pen = controlLinePen()
+        if axis is not None:
+            pen.setWidth(4)
+            self.text = qt.QGraphicsSimpleTextItem(axis, self)
+            self.text.setBrush(qt.QBrush(pen.color()))
+            self.text.setFont(qt.QFont("sans", 16))
+        else:
+            self.text = None
+
+        self.setPen(pen)
+        self.setZValue(2.)
+
+    def setScaledLine(self, x1, y1, x2, y2):
+        s = self.params.cgscale
+        self.setPos(x1*s, y1*s)
+        self.setRotation(-qt.QLineF(x1, y1, x2, y2).angle())
+        linelen = math.sqrt((x2-x1)**2+(y2-y1)**2)*s
+        self.setLine(0, 0, linelen, 0)
+        if self.text is not None:
+            self.text.setPos(linelen, 0)
+
+class _SvgRotItem(qt.QGraphicsSvgItem, _ScaledShape):
+    """Draw an SVG item."""
+    def __init__(self, filename, parent, mode):
+        qt.QGraphicsSvgItem.__init__(
+            self, os.path.join(utils.imagedir, filename), parent)
+        self.setFlag(qt.QGraphicsItem.ItemIsMovable)
+        self.setZValue(3.)
+        self.mode = mode
+
+    def mouseMoveEvent(self, event):
+        """Notify parent on move."""
+        qt.QGraphicsSvgItem.mouseMoveEvent(self, event)
+        self.parentItem().updateMovedCntrl(self, event, self.mode)
+
+    def mouseReleaseEvent(self, event):
+        """Notify parent on unclicking."""
+        qt.QGraphicsSvgItem.mouseReleaseEvent(self, event)
+        self.parentItem().updateWidget()
+
+def rotM_to_angles(rotM):
+    """Convert a rotation matrix to its constituent Euler angles (deg)."""
+
+    # Note: uses atan2 to get correct quadrants, and for theta_y, uses
+    # larger denominator to avoid division by zero
+
+    theta_z = math.atan2(rotM.get(1,0),rotM.get(0,0))
+    theta_x = math.atan2(rotM.get(2,1),rotM.get(2,2))
+    sz, cz = math.sin(theta_z), math.cos(theta_z)
+    if abs(cz) > abs(sz):
+        theta_y = math.atan2(-rotM.get(2,0),rotM.get(0,0)/cz)
+    else:
+        theta_y = math.atan2(-rotM.get(2,0),rotM.get(1,0)/sz)
+
+    return (theta_x*RAD2DEG, theta_y*RAD2DEG, theta_z*RAD2DEG)
+
+class _SceneRotationItem(qt.QGraphicsItem):
+    """For controlling the rotation of a 3D scene."""
+
+    def __init__(self, parent, params):
+
+        qt.QGraphicsItem.__init__(self, parent)
+        self.params = params
+        self.cgscale = params.cgscale
+
+        angles = params.angles
+
+        # the current rotation matrix
+        self.rotM = threed.rotate3M4(
+            angles[0]*DEG2RAD, angles[1]*DEG2RAD, angles[2]*DEG2RAD)
+
+        self.setZValue(2.)
+
+        self.boxpts = []
+        boxvecs = []
+        rotvecs = []
+        for dx, dy, dz in (
+                (-0.5,-0.5,-0.5), (+0.5,-0.5,-0.5),
+                (-0.5,+0.5,-0.5), (+0.5,+0.5,-0.5),
+                (-0.5,-0.5,+0.5), (+0.5,-0.5,+0.5),
+                (-0.5,+0.5,+0.5), (+0.5,+0.5,+0.5), ):
+
+            invec = threed.Vec4(dx, dy, dz, 1)
+            self.boxpts.append(threed.Vec4(dx, dy, dz, 1))
+
+        # make rotation controls
+        posn = params.posn
+
+        s = self.params.cgscale
+        bx, by = posn[0]*s, posn[1]*s
+
+        cntrl = _SvgRotItem("veusz-arrow-nesw.svg", self, "xy")
+        cntrl.setCursor(qt.Qt.SizeAllCursor)
+        cntrl.setPos(bx, by)
+        cntrl.setToolTip(_(
+            "Click and drag to rotate in x and y (hold Ctrl for x and z)"))
+
+        cntrl = _SvgRotItem("veusz-arrow-ns.svg", self, "y")
+        cntrl.setCursor(qt.Qt.SizeVerCursor)
+        cntrl.setPos(bx+20, by)
+        cntrl.setToolTip(_(
+            "Click and drag to rotate in y"))
+
+        cntrl = _SvgRotItem("veusz-arrow-ew.svg", self, "x")
+        cntrl.setCursor(qt.Qt.SizeHorCursor)
+        cntrl.setPos(bx+40, by)
+        cntrl.setToolTip(_(
+            "Click and drag to rotate in x"))
+
+        cntrl = _SvgRotItem("veusz-arrow-circ.svg", self, "z")
+        cntrl.setCursor(qt.Qt.SizeBDiagCursor)
+        cntrl.setPos(bx+68, by)
+        cntrl.setToolTip(_(
+            "Click and drag to rotate in z"))
+
+        # lines for the box
+        axes = {0:'x', 3:'y', 8:'z'}
+        self.lines = []
+        for i in range(12):
+            line = _SceneEdgeLine(self, self.params, axis=axes.get(i))
+            self.lines.append(line)
+
+        self.updatePositions()
+
+    def updatePositions(self):
+        combM = self.params.camM * self.rotM
+
+        points = []
+        for v in self.boxpts:
+            proj = threed.vec4to3(combM * v)
+            sp = threed.projVecToScreen(self.params.screenM, proj)
+            point = qt.QPointF(sp.get(0), sp.get(1))
+            points.append(point)
+
+        idxs = (
+            (0,1), (1,3), (3,2), (0,2),
+            (4,5), (5,7), (7,6), (6,4),
+            (0,4), (1,5), (2,6), (3,7),
+        )
+        for i, (i0, i1) in enumerate(idxs):
+            self.lines[i].setScaledLine(
+                points[i0].x(), points[i0].y(),
+                points[i1].x(), points[i1].y())
+
+    def boundingRect(self):
+        """Intentionally zero bounding rect."""
+        return qt.QRectF(0, 0, 0, 0)
+
+    def paint(self, painter, option, widget):
+        """Intentionally empty painter."""
+
+    def updateMovedCntrl(self, corner, event, mode):
+        """Rotate given moving control."""
+
+        event.accept()
+        newpos = event.screenPos()
+        oldpos = event.lastScreenPos()
+        if newpos == oldpos:
+            return
+
+        delta = newpos-oldpos
+
+        if mode == 'xy':
+            if (int(event.modifiers()) & qt.Qt.ControlModifier) == 0:
+                # rotate in x,y axes on screen
+                deltaM = threed.rotate3M4(
+                    -delta.y()*DEG2RAD, -delta.x()*DEG2RAD, 0)
+            else:
+                # if control is pressed, rotate along z axis for y direction
+                deltaM = threed.rotate3M4(
+                    -delta.x()*DEG2RAD, 0, -delta.y()*DEG2RAD)
+        elif mode == 'y':
+            deltaM = threed.rotate3M4(-delta.y()*DEG2RAD, 0, 0)
+        elif mode == 'x':
+            deltaM = threed.rotate3M4(0, -delta.x()*DEG2RAD, 0)
+        elif mode == 'z':
+            deltaM = threed.rotate3M4(0, 0, -delta.x()*DEG2RAD)
+
+        self.rotM = deltaM * self.rotM
+
+        self.updatePositions()
+
+    def updateWidget(self):
+        """Update widget angles."""
+
+        # get angles for rotation matrix
+        tx, ty, tz = rotM_to_angles(self.rotM)
+
+        # update in document
+        s = self.params.scene.settings
+        operations = (
+            document.OperationSettingSet(s.get('xRotation'), round(tx,1)),
+            document.OperationSettingSet(s.get('yRotation'), round(ty,1)),
+            document.OperationSettingSet(s.get('zRotation'), round(tz,1)),
+        )
+        self.params.scene.document.applyOperation(
+            document.OperationMultiple(operations, descr=_('rotate scene')))
+
+class ControlSceneRotation:
+    def __init__(self, posn, scene, camM, screenM, angles, painthelper):
+        """Control rotation of scene
+        """
+
+        self.posn = posn
+        self.scene = scene
+        self.camM = camM
+        self.screenM = screenM
+        self.angles = angles
+        self.cgscale = painthelper.cgscale
+
+    def createGraphicsItem(self, parent):
+        """Make the box and corner control graphs."""
+
+        return _SceneRotationItem(parent, self)

@@ -12,27 +12,27 @@ jobs:
     runs-on: windows-2019
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v2
-      with:
-        python-version: 3.8
+    - uses: actions/checkout@v4
     - name: Add msbuild to PATH
-      uses: microsoft/setup-msbuild@v1.0.2
-    - name: Cache Qt
-      id: cache-qt
-      uses: actions/cache@v1
+      uses: microsoft/setup-msbuild@v2
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
       with:
-        path: ../Qt
-        key: ${{ runner.os }}-QtCache
+        python-version: '3.10'
+    - name: Upgrade pip
+      run : |
+        python -V
+        python -m pip install --upgrade pip
     - name: Install Qt
-      uses: jurplel/install-qt-action@v2
+      uses: jurplel/install-qt-action@v4
       with:
-        cached: ${{ steps.cache-qt.outputs.cache-hit }}
-        modules: 'qtsvg'
+        cache: 'true'
+        cache-key-prefix: 'qt-windows-v1'
+        version: '5.15.2'
+        setup-python: false
     - name: Install Python dependencies
       run: |
-        pip install PyQt5 sip numpy h5py astropy
+        pip install -r requirements.txt
     - name: Build
       run: |
         python setup.py build_ext --inplace

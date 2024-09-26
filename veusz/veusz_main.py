@@ -23,6 +23,7 @@
 import sys
 import signal
 import argparse
+import re
 
 import veusz
 from veusz import qtall as qt
@@ -33,15 +34,19 @@ if sys.version_info[0] < 3:
 
 copyr='''Veusz %s
 
-Copyright (C) Jeremy Sanders 2003-2020 <jeremy@jeremysanders.net>
+Copyright (C) Jeremy Sanders 2003-2023 <jeremy@jeremysanders.net>
  and contributors
 Licenced under the GNU General Public Licence (version 2 or greater)
 '''
 
 splashcopyr='''<b><font color="purple">Veusz %s<br></font></b>
-Copyright (C) Jeremy Sanders 2003-2020 and contributors<br>
+Copyright (C) Jeremy Sanders 2003-2023 and contributors<br>
 Licenced under the GPL (version 2 or greater)
 '''
+
+def _(text, disambiguation=None, context='Application'):
+    """Translate text."""
+    return qt.QCoreApplication.translate(context, text, disambiguation)
 
 def handleIntSignal(signum, frame):
     '''Ask windows to close if Ctrl+C pressed.'''
@@ -66,7 +71,7 @@ def makeSplash(app):
     message.setAlignment(qt.Qt.AlignCenter)
     # increase size of font
     font = message.font()
-    font.setPointSize(font.pointSize()*1.5)
+    font.setPointSizeF(font.pointSize()*1.5)
     message.setFont(font)
     layout.addWidget(message)
     h = qt.QFontMetrics(font).height()
@@ -76,8 +81,8 @@ def makeSplash(app):
     splash.setGeometry(5, 5, 100, 100)
     screen = qt.QDesktopWidget().screenGeometry()
     splash.move(
-        (screen.width()-layout.sizeHint().width())/2,
-        (screen.height()-layout.sizeHint().height())/2
+        (screen.width()-layout.sizeHint().width())//2,
+        (screen.height()-layout.sizeHint().height())//2
     )
 
     # make sure dialog goes away - avoid problem if a message box pops
@@ -195,7 +200,7 @@ class VeuszApp(qt.QApplication):
             action='store_true',
             help='(internal - not for external use)')
         parser.add_argument(
-            '--plugin', action='append', metavar='FILE',
+            '--veusz-plugin', action='append', metavar='FILE',
             help='load the plugin from the file given for '
             'the session')
         parser.add_argument(
@@ -225,6 +230,7 @@ class VeuszApp(qt.QApplication):
     def openMainWindow(self, docs):
         """Open the main window with any loaded files."""
         from veusz.windows.mainwindow import MainWindow
+        from veusz.document import Document, PluginLoadError
 
         emptywins = []
         for w in self.topLevelWidgets():
@@ -309,14 +315,22 @@ class VeuszApp(qt.QApplication):
 
         # add directories to path
         if setting.settingdb['external_pythonpath']:
-            sys.path += setting.settingdb['external_pythonpath'].split(':')
+            # We want a list of items separated by colons
+            # Unfortunately on windows there can be a colon and drive letter,
+            # so we avoid splitting colons which look like a:\foo or B:/bar
+            parts = re.findall(
+                r'[A-Za-z]:[\\/][^:]+|[^:]+',
+                setting.settingdb['external_pythonpath'])
+            sys.path += list(parts)
 
-        # load any requested plugins
-        if args.plugin:
-            try:
-                document.Document.loadPlugins(pluginlist=args.plugin)
-            except RuntimeError as e:
-                startuperrors.append(str(e))
+        try:
+            # load plugins from settings
+            document.Document.loadPlugins()
+            if args.veusz_plugin:
+                # load plugins on command line
+                document.Document.loadPlugins(pluginlist=args.veusz_plugin)
+        except document.PluginLoadError as e:
+            startuperrors.append(str(e))
 
         # different modes
         if args.listen:
@@ -338,7 +352,7 @@ class VeuszApp(qt.QApplication):
         # this has to be displayed after the main window is created,
         # otherwise it never gets shown
         for error in startuperrors:
-            qt.QMessageBox.critical(None, "Veusz", error)
+            qt.QMessageBox.critical(None, _("Error starting - Veusz"), error)
 
     def showException(self, excepttype, exceptvalue, tracebackobj):
         """Show an exception dialog (raised from another thread)."""
@@ -356,6 +370,8 @@ def run():
     try:
         qt.QApplication.setAttribute(qt.Qt.AA_EnableHighDpiScaling, True)
         qt.QApplication.setAttribute(qt.Qt.AA_UseHighDpiPixmaps, True)
+        qt.QApplication.setHighDpiScaleFactorRoundingPolicy(
+            qt.QApplication.highDpiScaleFactorRoundingPolicy().PassThrough)
     except AttributeError:
         # old qt versions
         pass

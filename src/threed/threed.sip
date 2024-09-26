@@ -228,6 +228,7 @@ Vec3 operator*(const Vec3& v, const Mat3& o);
 Mat3 identityM3();
 
 
+
 // this is actually std::vector<double>
 class ValVector
 {
@@ -263,6 +264,10 @@ public:
   bool empty() const;
 };
 
+// helper functions
+Vec3 vec4to3(const Vec4& v);
+Vec4 vec3to4(const Vec3& v);
+Vec2 vec3to2(const Vec3& v);
 Vec3 calcProjVec(const Mat4& projM, const Vec3& v);
 Vec3 calcProjVec(const Mat4& projM, const Vec4& v);
 Vec2 projVecToScreen(const Mat3& screenM, const Vec3& vec);

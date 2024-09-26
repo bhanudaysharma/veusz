@@ -19,27 +19,23 @@
 ##############################################################################
 
 """
-Veusz distutils setup script
-see the file INSTALL for details on how to install Veusz
+Veusz setuputils script
+see the file INSTALL.md for details on how to install Veusz
 """
 
-import sys
 import glob
 import os.path
 import numpy
 
-import setuptools
 from setuptools import setup, Extension
 from setuptools.command.install import install as orig_install
-from distutils.command.install_data import install_data
-import pyqtdistutils
 
-if sys.version_info[0] < 3:
-    raise RuntimeError('Veusz only supports Python 3')
+# code taken from distutils for installing data that was removed in
+# setuptools
+from install_data import install_data
 
-# get version
-with open('VERSION') as verf:
-    version = verf.read().strip()
+# setuptools extension for building SIP/PyQt modules
+from pyqt_setuptools import sip_build_ext
 
 class install(orig_install):
     user_options = orig_install.user_options + [
@@ -84,13 +80,6 @@ class smart_install_data(install_data):
 
         return install_data.run(self)
 
-descr = '''Veusz is a 2D and 3D scientific plotting package, designed to
-create publication-ready PDF and SVG output. It features GUI,
-command-line, and scripting interfaces. Graphs are constructed from
-"widgets", allowing complex layouts to be designed. Veusz supports
-plotting functions, data with errors, keys, labels, stacked plots,
-multiple plots, and fitting data.'''
-
 def findData(dirname, extns):
     """Return tuple for directory name and list of file extensions for data."""
     files = []
@@ -100,52 +89,11 @@ def findData(dirname, extns):
     return (dirname, files)
 
 setup(
-    name = 'veusz',
-    version = version,
-    description = 'A scientific plotting package',
-    long_description = descr,
-    author = 'Jeremy Sanders',
-    author_email = 'jeremy@jeremysanders.net',
-    url = 'https://veusz.github.io/',
-    license = 'GPLv2+',
-    classifiers = [
-        'Programming Language :: Python',
-        'Programming Language :: Python :: 3',
-        'Programming Language :: Python :: 3.3',
-        'Programming Language :: Python :: 3.4',
-        'Programming Language :: Python :: 3.5',
-        'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7',
-        'Programming Language :: Python :: 3.8',
-        'Programming Language :: Python :: 3.9',
-        'Development Status :: 5 - Production/Stable',
-        'Environment :: X11 Applications :: Qt',
-        'Intended Audience :: Science/Research',
-        'License :: OSI Approved :: '
-        'GNU General Public License v2 or later (GPLv2+)',
-        'Topic :: Scientific/Engineering :: Visualization'
-    ],
-    python_requires='>=3.3',
-
     data_files = [
         ('', ['VERSION', 'AUTHORS', 'ChangeLog', 'COPYING']),
         findData('ui', ('ui',)),
         findData('icons', ('png', 'svg')),
         findData('examples', ('vsz', 'py', 'csv', 'dat')),
-    ],
-    packages = [
-        'veusz',
-        'veusz.dataimport',
-        'veusz.datasets',
-        'veusz.dialogs',
-        'veusz.document',
-        'veusz.helpers',
-        'veusz.plugins',
-        'veusz.qtwidgets',
-        'veusz.setting',
-        'veusz.utils',
-        'veusz.widgets',
-        'veusz.windows',
     ],
 
     ext_modules = [
@@ -153,20 +101,20 @@ setup(
         Extension(
             'veusz.helpers.threed',
             [
-                'veusz/helpers/src/threed/camera.cpp',
-                'veusz/helpers/src/threed/mmaths.cpp',
-                'veusz/helpers/src/threed/objects.cpp',
-                'veusz/helpers/src/threed/scene.cpp',
-                'veusz/helpers/src/threed/fragment.cpp',
-                'veusz/helpers/src/threed/numpy_helpers.cpp',
-                'veusz/helpers/src/threed/clipcontainer.cpp',
-                'veusz/helpers/src/threed/bsp.cpp',
-                'veusz/helpers/src/threed/twod.cpp',
-                'veusz/helpers/src/threed/threed.sip'
+                'src/threed/camera.cpp',
+                'src/threed/mmaths.cpp',
+                'src/threed/objects.cpp',
+                'src/threed/scene.cpp',
+                'src/threed/fragment.cpp',
+                'src/threed/numpy_helpers.cpp',
+                'src/threed/clipcontainer.cpp',
+                'src/threed/bsp.cpp',
+                'src/threed/twod.cpp',
+                'src/threed/threed.sip'
             ],
             language="c++",
             include_dirs=[
-                'veusz/helpers/src/threed', numpy.get_include()
+                'src/threed', numpy.get_include()
             ],
         ),
 
@@ -174,30 +122,30 @@ setup(
         Extension(
             'veusz.helpers.qtmml',
             [
-                'veusz/helpers/src/qtmml/qtmmlwidget.cpp',
-                'veusz/helpers/src/qtmml/qtmml.sip'
+                'src/qtmml/qtmmlwidget.cpp',
+                'src/qtmml/qtmml.sip'
             ],
             language="c++",
-            include_dirs=['veusz/helpers/src/qtmml'],
+            include_dirs=['src/qtmml'],
         ),
 
         # device to record paint commands
         Extension(
             'veusz.helpers.recordpaint',
             [
-                'veusz/helpers/src/recordpaint/recordpaintdevice.cpp',
-                'veusz/helpers/src/recordpaint/recordpaintengine.cpp',
-                'veusz/helpers/src/recordpaint/recordpaint.sip'
+                'src/recordpaint/recordpaintdevice.cpp',
+                'src/recordpaint/recordpaintengine.cpp',
+                'src/recordpaint/recordpaint.sip'
             ],
             language="c++",
-            include_dirs=['veusz/helpers/src/recordpaint'],
+            include_dirs=['src/recordpaint'],
         ),
 
         # contour plotting library
         Extension(
             'veusz.helpers._nc_cntr',
             [
-                'veusz/helpers/src/nc_cntr/_nc_cntr.c'
+                'src/nc_cntr/_nc_cntr.c'
             ],
             include_dirs=[numpy.get_include()]
         ),
@@ -206,17 +154,18 @@ setup(
         Extension(
             'veusz.helpers.qtloops',
             [
-                'veusz/helpers/src/qtloops/qtloops.cpp',
-                'veusz/helpers/src/qtloops/qtloops_helpers.cpp',
-                'veusz/helpers/src/qtloops/polygonclip.cpp',
-                'veusz/helpers/src/qtloops/polylineclip.cpp',
-                'veusz/helpers/src/qtloops/beziers.cpp',
-                'veusz/helpers/src/qtloops/beziers_qtwrap.cpp',
-                'veusz/helpers/src/qtloops/numpyfuncs.cpp',
-                'veusz/helpers/src/qtloops/qtloops.sip'],
+                'src/qtloops/qtloops.cpp',
+                'src/qtloops/qtloops_helpers.cpp',
+                'src/qtloops/polygonclip.cpp',
+                'src/qtloops/polylineclip.cpp',
+                'src/qtloops/beziers.cpp',
+                'src/qtloops/beziers_qtwrap.cpp',
+                'src/qtloops/numpyfuncs.cpp',
+                'src/qtloops/qtloops.sip'
+            ],
             language="c++",
             include_dirs=[
-                'veusz/helpers/src/qtloops',
+                'src/qtloops',
                 numpy.get_include()
             ],
         ),
@@ -224,27 +173,8 @@ setup(
 
     # new command options
     cmdclass = {
-        'build_ext': pyqtdistutils.build_ext,
+        'build_ext': sip_build_ext,
         'install_data': smart_install_data,
         'install': install
-    },
-
-    # requires these modules to install
-    install_requires = [
-        'numpy', 'PyQt5'
-    ],
-
-    # optional requirements
-    extras_require = {
-        "optional": [
-            'astropy', 'pyemf', 'sampy', 'iminuit', 'h5py'
-        ]
-    },
-
-    # GUI entry points
-    entry_points = {
-        'gui_scripts' : [
-            'veusz = veusz.veusz_main:run',
-        ]
     },
 )

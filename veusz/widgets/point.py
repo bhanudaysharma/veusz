@@ -370,13 +370,24 @@ class PointPlotter(GenericPlotter):
         s.add( setting.DatasetOrStr(
             'labels', '',
             descr=_('Dataset or string to label points'),
-            usertext=_('Labels')), 5 )
+            usertext=_('Labels')), 6 )
         s.add( setting.DatasetExtended(
             'scalePoints', '',
             descr=_(
                 'Scale size of markers given by dataset, expression'
                 ' or list of values'),
-            usertext=_('Scale markers')), 6 )
+            usertext=_('Scale markers')), 7 )
+        s.add( setting.DataColor('Color'), 8 )
+        s.add( setting.Choice(
+            'nanHandling',
+            ('break-on', 'ignore'),
+            'break-on',
+            descr=_('Effect of gaps or NaN values in input datasets'),
+            usertext=_('Data gaps'),
+            descriptions=(
+                _('NaN values are used to break datasets into parts at their locations'),
+                _('NaN values cause data in their locations to be ignored'),
+            )), 9 )
 
         # formatting
         s.add( setting.Int(
@@ -409,7 +420,6 @@ class PointPlotter(GenericPlotter):
             'circle',
             descr=_('Type of marker to plot'),
             usertext=_('Marker'), formatting=True), 0 )
-        s.add( setting.DataColor('Color') )
 
         s.add( setting.ErrorStyle(
             'errorStyle',
@@ -459,11 +469,13 @@ class PointPlotter(GenericPlotter):
             pixmap='settings_axislabel' )
 
     @classmethod
-    def onNewCompatLevel(klass, stylesheet, level):
-        """Called to adjust new defaults if there is a level change."""
-
-        # we use the new scaled marker sizes for levels >= 1
-        stylesheet.xy.MarkerFill.get('newMarkerSizes').set(level>=1)
+    def addSettingsCompatLevel(klass, s, level):
+        if level >= 1:
+            s.FillBelow.get('color').newDefault(
+                setting.Reference('../color') )
+            s.FillAbove.get('color').newDefault(
+                setting.Reference('../color') )
+            s.MarkerFill.get('newMarkerSizes').newDefault(True)
 
     @property
     def userdescription(self):
@@ -631,11 +643,11 @@ class PointPlotter(GenericPlotter):
                     pts.append( qt.QPointF(xvals[-1], yvals[-1]) )
 
         else:
-            assert False
+            raise RuntimeError('Invalid line mode')
 
         return pts
 
-    def _getBezierLine(self, poly, cliprect):
+    def _getBezierLine(self, poly, cliprect, beziertype):
         """Try to draw a bezier line connecting the points."""
 
         # clip to a larger box to help the lines get right angle
@@ -651,18 +663,22 @@ class PointPlotter(GenericPlotter):
         path = qt.QPainterPath()
         for lpoly in polys:
             if len(lpoly) >= 2:
-                npts = qtloops.bezier_fit_cubic_multi(lpoly, 0.1, len(lpoly)+1)
-                qtloops.addCubicsToPainterPath(path, npts);
+                if beziertype == "tight-Bezier":
+                    npts = qtloops.bezier_fit_cubic_tight(lpoly, 0.5)
+                else:
+                    npts = qtloops.bezier_fit_cubic_multi(
+                        lpoly, 0.1, len(lpoly)+1)
+                qtloops.addCubicsToPainterPath(path, npts)
         return path
 
     def _drawBezierLine( self, painter, xvals, yvals, posn,
-                         xdata, ydata, cliprect ):
+                         xdata, ydata, cliprect, beziertype ):
         """Handle bezier lines and fills."""
 
         pts = self._getLinePoints(xvals, yvals, posn, xdata, ydata)
         if len(pts) < 2:
             return
-        path = self._getBezierLine(pts, cliprect)
+        path = self._getBezierLine(pts, cliprect, beziertype)
         s = self.settings
 
         # do filling
@@ -891,9 +907,12 @@ class PointPlotter(GenericPlotter):
             text = text*(length // len(text)) + text[:length % len(text)]
 
         # loop over chopped up values
+        nanbreak = s.nanHandling == 'break-on'
+
         for xvals, yvals, tvals, ptvals, cvals in (
             datasets.generateValidDatasetParts(
-                [xv, yv, text, scalepoints, colorpoints])):
+                [xv, yv, text, scalepoints, colorpoints],
+                breakds=nanbreak)):
 
             #print "Calculating coordinates"
             # calc plotter coords of x and y points
@@ -921,10 +940,11 @@ class PointPlotter(GenericPlotter):
             #print "Painting plot line"
             # plot data line (and/or filling above or below)
             if not s.PlotLine.hide or not s.FillAbove.hide or not s.FillBelow.hide:
-                if s.PlotLine.bezierJoin:
+                interpolation_type = s.PlotLine.interpType
+                if interpolation_type != "linear":
                     self._drawBezierLine(
                         painter, xplotter, yplotter, posn,
-                        xvals, yvals, cliprect )
+                        xvals, yvals, cliprect, interpolation_type )
                 else:
                     self._drawPlotLine(
                         painter, xplotter, yplotter, posn,

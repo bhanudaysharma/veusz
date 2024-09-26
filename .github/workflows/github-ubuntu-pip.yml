@@ -14,32 +14,33 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v2
-    - name: Set up Python 3.8
-      uses: actions/setup-python@v2
+    - uses: actions/checkout@v4
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v5
       with:
-        python-version: 3.8
-    - name: Cache Qt
-      id: cache-qt
-      uses: actions/cache@v1
-      with:
-        path: ../Qt
-        key: ${{ runner.os }}-QtCache
+        python-version: '3.10'
+    - name: Upgrade pip
+      run : |
+        python -V
+        python -m pip install --upgrade pip
     - name: Install Qt
-      uses: jurplel/install-qt-action@v2
+      uses: jurplel/install-qt-action@v4
       with:
-        cached: ${{ steps.cache-qt.outputs.cache-hit }}
-        modules: 'qtsvg'
+        cache: 'true'
+        cache-key-prefix: 'qt-ubuntu-v2'
+        version: '5.15.2'
+        setup-python: false
     - name: Install Python dependencies
       run: |
-        python -m pip install --upgrade pip
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        # force older PyQt5
+        pip install numpy PyQt5==5.15.10 sip astropy h5py tomli
     - name: Build extensions
       run: |
         python setup.py build_ext --inplace
     - name: Run tests
       env:
-        LD_LIBRARY_PATH: ${{ env.Qt5_DIR }}/lib:{{ env.LD_LIBRARY_PATH }}
+        LD_LIBRARY_PATH: ${{ env.QT_ROOT_DIR }}/lib:{{ env.LD_LIBRARY_PATH }}
         QT_QPA_PLATFORM: minimal
         VEUSZ_INPLACE_TEST: 1
       run: |

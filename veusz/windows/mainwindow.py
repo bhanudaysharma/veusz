@@ -128,7 +128,7 @@ class MainWindow(qt.QMainWindow):
         # icon and different size variations
         self.setWindowIcon( utils.getIcon('veusz') )
 
-        # master documenent
+        # master document
         self.document = document.Document()
 
         # filename for document and update titlebar
@@ -286,10 +286,6 @@ class MainWindow(qt.QMainWindow):
             # set color theme
             self.document.basewidget.settings.get(
                 'colorTheme').set(setting.settingdb['colortheme_default'])
-
-            # compatibility version
-            self.document.basewidget.settings.get(
-                'compatLevel').set(self.document.basewidget.max_compat_level)
 
             # load defaults if set
             self.loadDefaultStylesheet()
@@ -553,10 +549,10 @@ class MainWindow(qt.QMainWindow):
 
             'data.import':
                 a(self, _('Import data into Veusz'), _('&Import...'),
-                  self.slotDataImport, icon='kde-vzdata-import'),
+                  self.slotDataImport, icon='kde-vzdata-import', key='Ctrl+I'),
             'data.edit':
                 a(self, _('Edit and enter new datasets'), _('&Editor...'),
-                  lambda: self.slotDataEdit(), icon='kde-edit-veuszedit'),
+                  lambda: self.slotDataEdit(), icon='kde-edit-veuszedit', key='Ctrl+E'),
             'data.create':
                 a(self, _('Create new datasets using ranges, parametrically or as functions of existing datasets'), _('&Create...'),
                   self.slotDataCreate, icon='kde-dataset-new-veuszedit'),
@@ -574,7 +570,7 @@ class MainWindow(qt.QMainWindow):
                   self.slotDataHistogram, icon='button_bar'),
             'data.reload':
                 a(self, _('Reload linked datasets'), _('&Reload'),
-                  self.slotDataReload, icon='kde-view-refresh'),
+                  self.slotDataReload, icon='kde-view-refresh', key='F5'),
 
             'help.home':
                 a(self, _('Go to the Veusz home page on the internet'),
@@ -1221,12 +1217,19 @@ class MainWindow(qt.QMainWindow):
                 msgbox.setText(
                     _("Could not import data from file '%s':\n\n %s") % (
                         filename, error))
-                msgbox.setInformativeText(_("Do you want to look for another file?"))
-                msgbox.setStandardButtons(qt.QMessageBox.Yes | qt.QMessageBox.Cancel)
+                msgbox.setInformativeText(
+                    _("Do you want to look for another file?"))
+                msgbox.setStandardButtons(
+                    qt.QMessageBox.Yes | qt.QMessageBox.Cancel |
+                    qt.QMessageBox.Ignore )
                 filename = None
-                if msgbox.exec_() == qt.QMessageBox.Yes:
-                    filename = qt.QFileDialog.getOpenFileName(self, "Choose data file")
+                res = msgbox.exec_()
+                if res == qt.QMessageBox.Yes:
+                    filename = qt.QFileDialog.getOpenFileName(
+                        self, "Choose data file")
                     filename = filename[0] if filename else None
+                elif res == qt.QMessageBox.Ignore:
+                    filename = False
             return filename
 
         # save stdout and stderr, then redirect to console

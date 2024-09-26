@@ -25,6 +25,7 @@
 #include <cmath>
 
 #define PI 3.14159265358979323846
+#define DEG2RAD (PI/180.)
 
 //////////////////////////////////////////////////////////////////////////////
 // 4-vector
@@ -505,12 +506,6 @@ inline bool line2DOverlap(Vec2 A1, Vec2 A2, Vec2 B1, Vec2 B2)
     return 0<=u && u<=d && 0<=v && v<=d;
   else
     return 0>=u && u>=d && 0>=v && v>=d;
-}
-
-// drop dimension of vector
-inline Vec2 dropDim(const Vec3 v)
-{
-  return Vec2(v(0), v(1));
 }
 
 //////////////////////////////////////////////////////////////////////////////

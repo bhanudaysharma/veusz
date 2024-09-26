@@ -102,10 +102,25 @@ class XYPlotLine(Line):
             'off',
             descr=_('Plot 90 degree steps instead of a line'),
             usertext=_('Steps')), 0 )
-        self.add( setting.Bool(
-            'bezierJoin', False,
-            descr=_('Connect points with a cubic Bezier curve'),
-            usertext=_('Bezier join')), 1 )
+        self.add( setting.Choice(
+            'interpType',
+            [
+                'linear', 'loose-Bezier', 'tight-Bezier',
+            ],
+            'linear',
+            descr=_('Line style (linear/curved) to connect points'),
+            usertext=_('Interpolation')), 1 )
+        # translate bezierJoin to interpType
+        self.add( setting.SettingBackwardCompat(
+            'bezierJoin',
+            'interpType',
+            False,
+            translatefn=lambda x: {
+                True: 'loose-Bezier',
+                False: 'linear'
+            }[x],
+            formatting=True,
+        ) )
         self.get('color').newDefault( Reference('../color') )
 
 class MarkerLine(Line):
@@ -255,6 +270,15 @@ class GraphBrush(BrushExtended):
 
         self.get('color').newDefault('background')
 
+class PageBrush(BrushExtended):
+    '''Fill used for back of page.'''
+
+    def __init__(self, name, **args):
+        BrushExtended.__init__(self, name, **args)
+
+        self.get('color').newDefault('background')
+        self.get('hide').newDefault(True)
+
 class PlotterFill(BrushExtended):
     '''Filling used for filling on plotters.'''
 
@@ -332,6 +356,12 @@ class Text(Settings):
             setting.Reference('/StyleSheet/Font/color'),
             descr=_('Font color'),
             usertext=_('Color') ) )
+        self.add( setting.FontStyle(
+            'style',
+            setting.Reference('/StyleSheet/Font/style'),
+            'font',
+            descr=_('Font style'),
+            usertext=_('Style') ) )
         self.add( setting.Bool(
             'italic', False,
             descr=_('Italic font'),
@@ -367,7 +397,11 @@ class Text(Settings):
         f = qt.QFont(self.font, int(size), weight, self.italic)
         if self.underline:
             f.setUnderline(True)
-        f.setStyleHint(qt.QFont.Times)
+        style = self.style
+        if style:
+            f.setStyleName(style)
+        else:
+            f.setStyleHint(qt.QFont.Times)
 
         return f
 

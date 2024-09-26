@@ -1,42 +1,19 @@
-# Subclasses disutils.command.build_ext,
+# Subclasses setuptools.command.build_ext,
 # replacing it with a SIP version that compiles .sip -> .cpp
 # before calling the original build_ext command.
-# Written by Giovanni Bajo <rasky at develer dot com>
+
+# Originally written by Giovanni Bajo <rasky at develer dot com>
 # Based on Pyrex.Distutils, written by Graham Fawcett and Darrel Gallion.
 
 import os
-import sys
-import sysconfig
+import shutil
 import subprocess
+import tomli
 
-from distutils.sysconfig import customize_compiler, get_python_lib
-import distutils.command.build_ext
-
-import PyQt5.QtCore
-
-##################################################################
-# try to get various useful things we need in order to build
-
-SIP_FLAGS = PyQt5.QtCore.PYQT_CONFIGURATION['sip_flags']
-
-try:
-    # sipconfig is deprecated but necessary to find sip reliably
-    import sipconfig
-except ImportError:
-    # try to guess locations
-    DEF_SIP_DIR = None
-    DEF_SIP_BIN = None
-    DEF_SIP_INC_DIR = None
-else:
-    # use sipconfig if found
-    DEF_SIP_DIR = sipconfig.Configuration().default_sip_dir
-    DEF_SIP_BIN = sipconfig.Configuration().sip_bin
-    DEF_SIP_INC_DIR = sipconfig.Configuration().sip_inc_dir
+from sysconfig import get_path
+from setuptools.command.build_ext import build_ext
 
 ##################################################################
-
-def replace_suffix(path, new_suffix):
-    return os.path.splitext(path)[0] + new_suffix
 
 def find_on_path(names, mainname):
     """From a list of names of executables, find the 1st one on a path.
@@ -46,10 +23,9 @@ def find_on_path(names, mainname):
     path = os.getenv('PATH', os.path.defpath)
     pathparts = path.split(os.path.pathsep)
     for cmd in names:
-        for dirname in pathparts:
-            cmdtry = os.path.join(dirname.strip('"'), cmd)
-            if os.path.isfile(cmdtry) and os.access(cmdtry, os.X_OK):
-                return cmdtry
+        resolved = shutil.which(cmd)
+        if resolved:
+            return resolved
     raise RuntimeError('Could not find %s executable' % mainname)
 
 def read_command_output(cmd):
@@ -63,18 +39,12 @@ def read_command_output(cmd):
         raise RuntimeError('Command %s returned error' % str(cmd))
     return stdout.strip()
 
-class build_ext(distutils.command.build_ext.build_ext):
+class sip_build_ext(build_ext):
 
     description = ('Compile SIP descriptions, then build C/C++ extensions '
                    '(compile/link to build directory)')
 
-    user_options = distutils.command.build_ext.build_ext.user_options + [
-        ('sip-exe=', None,
-         'override sip executable'),
-        ('sip-dir=', None,
-         'override sip file directory'),
-        ('sip-include-dir=', None,
-         'override sip include directory'),
+    user_options = build_ext.user_options + [
         ('qmake-exe=', None,
          'override qmake executable'),
         ('qt-include-dir=', None,
@@ -86,44 +56,11 @@ class build_ext(distutils.command.build_ext.build_ext):
         ]
 
     def initialize_options(self):
-        distutils.command.build_ext.build_ext.initialize_options(self)
-        self.sip_exe = None
-        self.sip_dir = None
-        self.sip_include_dir = None
+        build_ext.initialize_options(self)
         self.qmake_exe = None
         self.qt_include_dir = None
         self.qt_library_dir = None
         self.qt_libinfix = None
-
-    def _get_sip_exe(self, build_cmd):
-        """Get exe for sip. Sources are:
-        --sip-exe option, environment, DEF_SIP_BIN, search on path."""
-        return (
-            build_cmd.sip_exe or
-            os.environ.get('SIP_EXE') or
-            DEF_SIP_BIN or
-            find_on_path(
-                ('sip5', 'sip-qt5', 'sip', 'sip5.exe', 'sip.exe'), 'sip')
-        )
-
-    def _get_sip_inc_dir(self, build_cmd):
-        """Get include directory for sip."""
-        return (
-            build_cmd.sip_include_dir or
-            os.environ.get('SIP_INCLUDE_DIR') or
-            DEF_SIP_INC_DIR or
-            sysconfig.get_path('include')
-        )
-
-    def _get_sip_dir(self, build_cmd):
-        """Get sip directory."""
-        data_dir = sys.prefix if sys.platform=='win32' else sys.prefix+'/share'
-        return (
-            build_cmd.sip_dir or
-            os.environ.get('SIP_DIR') or
-            DEF_SIP_DIR or
-            os.path.join(data_dir, 'sip')
-        )
 
     def _get_qmake(self, build_cmd):
         """Get qmake executable."""
@@ -207,18 +144,11 @@ class build_ext(distutils.command.build_ext.build_ext):
 
         build_cmd = self.get_finalized_command('build_ext')
 
-        # executable in order of priority using or
-        sip_exe = self._get_sip_exe(build_cmd)
-        sip_inc_dir = self._get_sip_inc_dir(build_cmd)
-
-        # python data directory
-        sip_dir = self._get_sip_dir(build_cmd)
-
         # add directory of input files as include path
         indirs = list(set([os.path.dirname(x) for x in sources]))
 
         # Add the SIP and Qt include directories to the include path
-        extension.include_dirs += [sip_inc_dir] + indirs
+        extension.include_dirs += indirs
 
         libinfix = self._get_qt_libinfix(build_cmd)
 
@@ -235,11 +165,11 @@ class build_ext(distutils.command.build_ext.build_ext):
                     '-framework', 'QtXml'+libinfix,
                     '-framework', 'QtWidgets'+libinfix,
                     '-Wl,-rpath,@executable_path/Frameworks',
-                    '-Wl,-rpath,' + lib_dir
-                    ]
+                    '-Wl,-rpath,' + lib_dir,
+                ]
                 extension.extra_compile_args = [
                     '-F', lib_dir,
-                    ]
+                ]
             else:
                 extension.libraries = [
                     'Qt5Gui'+libinfix,
@@ -268,8 +198,8 @@ class build_ext(distutils.command.build_ext.build_ext):
         # Collect the names of the source (.sip) files
         sip_sources = []
         sip_sources = [source for source in sources if source.endswith('.sip')]
-        other_sources = [source for source in sources
-                         if not source.endswith('.sip')]
+        other_sources = [
+            source for source in sources if not source.endswith('.sip')]
         generated_sources = []
 
         for sip in sip_sources:
@@ -277,41 +207,75 @@ class build_ext(distutils.command.build_ext.build_ext):
             sip_builddir = os.path.join(self.build_temp, 'sip-' + sip_basename)
             if not os.path.exists(sip_builddir) or self.force:
                 os.makedirs(sip_builddir, exist_ok=True)
-                self._sip_compile(sip_exe, sip_dir, sip, sip_builddir)
-            out = [
-                os.path.join(sip_builddir, fn)
-                for fn in sorted(os.listdir(sip_builddir))
-                if fn.endswith(".cpp")
+                self._sip_compile(sip, sip_builddir)
+
+            # files get put in sip_builddir + modulename
+            modulename = os.path.splitext(os.path.basename(sip))[0]
+            dirname = os.path.join(sip_builddir, 'output', modulename)
+
+            source_files = [
+                os.path.join(dirname, fn)
+                for fn in sorted(os.listdir(dirname))
+                if fn.endswith(".cpp") or fn.endswith(".c")
             ]
-            generated_sources.extend(out)
+
+            generated_sources.extend(source_files)
 
         return generated_sources + other_sources
 
-    def _sip_compile(self, sip_exe, sip_dir, source, sip_builddir):
+    def _sip_compile(self, source, sip_builddir):
         """Compile sip file to sources."""
-        if 'sip5' in sip_exe:
-            pyqt5_include_dir = os.path.join(get_python_lib(plat_specific=1),
-                                             'PyQt5', 'bindings')
-            self.spawn(['sip-module', '--target-dir', sip_builddir,
-                        '--sip-h', 'PyQt5.sip'])
-        else:
-            pyqt5_include_dir = os.path.join(sip_dir, 'PyQt5')
-        self.spawn(
-            [
-                sip_exe,
-                '-c', sip_builddir
-            ] + SIP_FLAGS.split() + [
-                '-I', pyqt5_include_dir,
-                source
-            ]
-        )
 
-    def build_extensions(self):
-        # remove annoying flag which causes warning for c++ sources
-        # https://stackoverflow.com/a/36293331/351771
-        customize_compiler(self.compiler)
-        try:
-            self.compiler.compiler_so.remove("-Wstrict-prototypes")
-        except (AttributeError, ValueError):
-            pass
-        distutils.command.build_ext.build_ext.build_extensions(self)
+        pyqt5_include_dir = os.path.join(
+            get_path('platlib'), 'PyQt5', 'bindings')
+        pyqt5_toml = os.path.join(pyqt5_include_dir, 'QtCore', 'QtCore.toml')
+        with open(pyqt5_toml, 'rb') as fin:
+            pyqt5_cfg = tomli.load(fin)
+        abi_version = pyqt5_cfg.get('sip-abi-version')
+
+        modulename = os.path.splitext(os.path.basename(source))[0]
+        srcdir = os.path.abspath(os.path.dirname(source))
+
+        # location of sip output files
+        output_dir = os.path.abspath(os.path.join(sip_builddir, 'output'))
+        os.makedirs(output_dir)
+
+        def toml_esc(s):
+            s = s.replace("\\", "\\\\").replace('"', r'\"')
+            return '"'+s+'"'
+
+        toml_text=f'''
+[build-system]
+requires=["sip >= 5.5.0, <7"]
+build-backend="sipbuild.api"
+
+[tool.sip.metadata]
+name="{modulename}"
+
+[tool.sip.project]
+sip-include-dirs=[{toml_esc(pyqt5_include_dir)}]
+abi-version="{abi_version}"
+build-dir={toml_esc(output_dir)}
+sip-module="PyQt5.sip"
+sip-files-dir={toml_esc(srcdir)}
+
+[tool.sip.bindings.{modulename}]
+pep484-pyi=false
+protected-is-public=false
+'''
+
+        pyproject_fname = os.path.join(sip_builddir, 'pyproject.toml')
+        with open(pyproject_fname, 'w') as fout:
+            fout.write(toml_text)
+
+        # generate the source files for the bindings
+        build_cmd = shutil.which('sip-build')
+        if not build_cmd:
+            raise RuntimeError('Could not find sip-build command on PATH')
+        subprocess.check_call([build_cmd, '--no-compile'], cwd=sip_builddir)
+
+        # put sip header in correct location
+        shutil.copyfile(
+            os.path.join(output_dir, 'sip.h'),
+            os.path.join(output_dir, modulename, 'sip.h')
+        )

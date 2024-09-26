@@ -52,6 +52,23 @@ class DotDotButton(qt.QPushButton):
         if tooltip:
             self.setToolTip(tooltip)
         self.setSizePolicy(qt.QSizePolicy.Maximum, qt.QSizePolicy.Maximum)
+        self.setStyleSheet('QPushButton { padding: 0; }')
+
+class AddButton(qt.QPushButton):
+    """A button to add item."""
+    def __init__(self):
+        qt.QPushButton.__init__(self, "+", flat=True)
+        self.setFixedWidth(24)
+        self.setToolTip('Add another item')
+        self.setStyleSheet('QPushButton { padding: 0; }')
+
+class SubButton(qt.QPushButton):
+    """A button to subtract item."""
+    def __init__(self):
+        qt.QPushButton.__init__(self, "-", flat=True)
+        self.setFixedWidth(24)
+        self.setToolTip('Remove item')
+        self.setStyleSheet('QPushButton { padding: 0; }')
 
 class Edit(qt.QLineEdit):
     """Main control for editing settings which are text."""
@@ -573,7 +590,7 @@ class MultiLine(qt.QTextEdit):
         m = self.contentsMargins()
         docheight = self.document().size().height() + m.top() + m.bottom()
         docheight = min(self.heightmax, max(self.heightmin, docheight))
-        self.setFixedHeight(docheight)
+        self.setFixedHeight(int(docheight))
 
     def focusOutEvent(self, *args):
         """Allows us to check the contents of the widget."""
@@ -1572,14 +1589,8 @@ class MultiSettingWidget(qt.QWidget):
         row = len(self.controls)
         cntrl = self.makeControl(row)
         cntrl.installEventFilter(self)
-        addbutton = qt.QPushButton('+')
-        addbutton.setFixedWidth(24)
-        addbutton.setFlat(True)
-        addbutton.setToolTip('Add another item')
-        subbutton = qt.QPushButton('-')
-        subbutton.setToolTip('Remove item')
-        subbutton.setFixedWidth(24)
-        subbutton.setFlat(True)
+        addbutton = AddButton()
+        subbutton = SubButton()
 
         self.controls.append((cntrl, addbutton, subbutton))
 
@@ -1876,6 +1887,52 @@ class FontFamily(qt.QFontComboBox):
         """Make control reflect chosen setting."""
         self.setCurrentFont( qt.QFont(self.setting.toUIText()) )
 
+class FontStyle(qt.QComboBox):
+    """Font style associated with font family."""
+
+    sigSettingChanged = qt.pyqtSignal(qt.QObject, object, object)
+    deftext = _('default')
+
+    def __init__(self, setting, familysetting, parent):
+        """Create the combobox."""
+
+        qt.QComboBox.__init__(self, parent)
+        self.setEditable(True)
+        self.setting = setting
+        self.familysetting = familysetting
+
+        self.onModified()
+
+        self.setting.setOnModified(self.onModified)
+        self.familysetting.setOnModified(self.onModified)
+
+        # if a different item is selected
+        self.activated[str].connect(self.slotActivated)
+
+    def slotActivated(self, val):
+        """Update setting if a different item is chosen."""
+        newval = self.currentText().strip()
+        if newval == self.deftext:
+            newval = ''
+        self.sigSettingChanged.emit(self, self.setting, newval)
+
+    @qt.pyqtSlot()
+    def onModified(self):
+        """Make control reflect chosen setting."""
+
+        styles = [self.deftext] + sorted(
+            qt.QFontDatabase().styles(self.familysetting.get()))
+
+        val = self.setting.get().strip()
+        if not val:
+            val = 'default'
+        elif val not in styles:
+            styles.append(val)
+
+        utils.populateCombo(self, styles)
+        idx = self.findText(val)
+        self.setCurrentIndex(idx)
+
 class ErrorStyle(Choice):
     """Choose different error bar styles."""
 
@@ -1970,3 +2027,4 @@ class AxisBound(Choice):
 
         if self.currentText().lower() != 'auto':
             self.setEditText( self.setting.toUIText() )
+

@@ -19,21 +19,25 @@
 #    51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
 ###############################################################################
 
-import sys
-import string
-import re
+from collections import defaultdict
+import codecs
+import csv
+import io
+import math
 import os
 import os.path
+import re
+import string
+import sys
 import threading
-import codecs
-import io
-import csv
 import time
-from collections import defaultdict
 
 import numpy as N
 
 from .. import qtall as qt
+
+DEG2RAD = math.pi/180
+RAD2DEG = 180/math.pi
 
 class IgnoreException(Exception):
     """A special exception class to be ignored by the exception handler."""
@@ -51,9 +55,12 @@ def _getVeuszDirectory():
         # standard installation
         resdir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
-    # override data directory with symlink
-    if os.path.exists( os.path.join(resdir, 'resources') ):
-        resdir = os.path.realpath( os.path.join(resdir, 'resources') )
+        if os.path.exists( os.path.join(resdir, 'resources') ):
+            # override data directory with symlink
+            resdir = os.path.realpath( os.path.join(resdir, 'resources') )
+        elif not os.path.exists(os.path.join(resdir, 'VERSION')):
+            # running from the current direction
+            resdir = os.path.join(resdir, '..')
 
     # override with VEUSZ_RESOURCE_DIR environment variable if necessary
     resdir = os.environ.get('VEUSZ_RESOURCE_DIR', resdir)
@@ -69,9 +76,8 @@ resourceDirectory, exampleDirectory = _getVeuszDirectory()
 def getLicense():
     """Return license text."""
     try:
-        f = open(os.path.join(resourceDirectory, 'COPYING'), 'rU')
-        text = f.read()
-        f.close()
+        with open(os.path.join(resourceDirectory, 'COPYING')) as f:
+            text = f.read()
     except EnvironmentError:
         text = (
             'Could not open the license file.\n'

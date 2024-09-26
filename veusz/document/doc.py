@@ -68,6 +68,9 @@ class DocSuspend:
     def __exit__(self, type, value, traceback):
         self.doc.enableUpdates()
 
+class PluginLoadError(RuntimeError):
+    pass
+
 class Document(qt.QObject):
     """Document class for holding the graph data.
     """
@@ -85,16 +88,20 @@ class Document(qt.QObject):
     # security value set
     sigSecuritySet = qt.pyqtSignal(bool)
 
+    # compatibility level
+    maxcompatlevel = 1
+
     def __init__(self):
         """Initialise the document."""
         qt.QObject.__init__( self )
 
+        # load plugins if not already loaded
         if not Document.pluginsloaded:
             Document.loadPlugins()
-            Document.pluginsloaded = True
 
         # change tracking of document as a whole
         self.changeset = 0            # increased when the document changes
+        self.compatlevel = 0          # for non-backward compatible changes
 
         # map tags to dataset names
         self.datasettags = defaultdict(list)
@@ -115,8 +122,10 @@ class Document(qt.QObject):
     def wipe(self):
         """Wipe out any stored data."""
         self.data = {}
+
         self.basewidget = widgetfactory.thefactory.makeWidget(
             'document', None, self)
+
         self.setModified(False)
         self.filename = ""
         self.evaluate.wipe()
@@ -146,11 +155,25 @@ class Document(qt.QObject):
         """Return context manager for suspending updates."""
         return DocSuspend(self)
 
-    def makeDefaultDoc(self, mode='graph'):
+    def setCompatLevel(self, level):
+        """Update the compatiblity level.
+
+        If level<0, then use latest version
+        """
+        if level < 0:
+            level = self.maxcompatlevel
+        elif level > self.maxcompatlevel:
+            raise ValueError(
+                "Compatibility level greater than supported by this Veusz version")
+        self.compatlevel = level
+        self.basewidget.makeStylesheet(compatlevel=self.compatlevel)
+
+    def makeDefaultDoc(self, mode='graph', compatlevel=-1):
         """Add default widgets to create document.
 
         mode == 'graph', 'polar', 'ternary' or 'graph3d'
         """
+        self.setCompatLevel(compatlevel)
         page = widgetfactory.thefactory.makeWidget(
             'page', self.basewidget, self)
 
@@ -332,17 +355,21 @@ class Document(qt.QObject):
     @classmethod
     def loadPlugins(kls, pluginlist=None):
         """Load plugins and catch exceptions."""
+
+        # set early, so we don't repeatedly load faulty plugins
+        kls.pluginsloaded = True
+
         if pluginlist is None:
             pluginlist = setting.settingdb.get('plugins', [])
 
         for plugin in pluginlist:
             try:
                 with open(plugin) as f:
-                    exec(f.read())
+                    exec(f.read(), {})
             except Exception:
                 err = _('Error loading plugin %s\n\n%s') % (
                     plugin, traceback.format_exc())
-                raise RuntimeError(err)
+                raise PluginLoadError(err)
 
     def paintTo(self, painthelper, page):
         """Paint page specified to the paint helper."""
@@ -405,6 +432,9 @@ class Document(qt.QObject):
         """
 
         self._writeFileHeader(fileobj, 'saved document')
+
+        # write compatibility level
+        fileobj.write('SetCompatLevel(%s)\n' % self.compatlevel)
 
         # add file directory to import path if we know it
         reldirname = None
